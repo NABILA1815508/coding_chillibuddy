@@ -1,0 +1,181 @@
+ #include <SoftwareSerial.h> // Include Software Serial library to communicate with GSM
+#include <Wire.h> // Allows to communicate with I2C devices
+#include <LiquidCrystal_I2C.h>// is used to display output on LCD
+#include "RTClib.h"
+#include <time.h>
+SoftwareSerial mySerial(9, 10);// Configure software serial port
+RTC_DS1307 rtc;
+String lampState = "HIGH";// Create a variable to store Lamp state
+char message=0;
+char phase = 0;
+int redPin = 6;
+//int greenPin = 6;
+int bluePin = 7;
+LiquidCrystal_I2C lcd(0x3F,20,4);
+const int lm35_pin = A1;  /* LM35 O/P pin */
+int hot = 30;
+char daysOfTheWeek[7][12] = {"Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"};
+int Relay = 4;
+bool lightsOn = false;
+
+void setup() 
+{
+
+  lcd.init();                      // initialize the lcd 
+  lcd.init();
+  pinMode(redPin, OUTPUT);
+  pinMode(bluePin, OUTPUT);
+  pinMode(Relay, OUTPUT);
+ 
+  mySerial. begin(9600); // Initializing serial commmunication with GSM
+  Serial.begin(9600); // initializing serial monitor 
+  delay(2000);// Give time to your GSM shield log on to network
+  digitalWrite(Relay, HIGH);
+  Serial.println("Choose dimming level and plant phase:\n 1-High dim, Phase 1 \n 2-High dim,Phase 2 \n 3-High dim,Phase 3 \n 4-Low dim,Phase 1 \n 5-Low dim,Phase 2 \n 6-Low dim,Phase 3 \n");
+  if (! rtc.begin()) 
+  {
+    Serial.println("Couldn't find RTC");
+    delay(500);
+    //while (1);
+  }
+  rtc.adjust(DateTime(F(__DATE__),F( __TIME__)));
+  
+}
+
+void loop()
+{
+  mySerial.println("AT+CNMI=2,2,0,0,0"); // AT Command to receive a live SMS
+  delay(1000);
+  
+  if (Serial.available()>0){
+    phase = Serial.read();
+    
+  if((phase > '0') && (phase == '1'))
+      {
+        setColor(0, 255);
+        Serial.println("You chose high dim & plant phase 1. LED emits High Red light");
+      }
+        
+      else if((phase > '0') && (phase == '2'))
+      {
+        setColor(0, 0);
+        Serial.println("You chose high dim & plant phase 2. LED emits High Purple light");
+      }
+   
+      else if((phase > '0') && (phase == '3'))
+      {
+        setColor(255, 0);
+        Serial.println("You chose high dim & plant phase 3. LED emits High Blue light");
+      }
+  
+      else if((phase > '0') && (phase == '4'))
+        {
+          setColor(100, 255);
+          Serial.println("You chose low dim & plant phase 1. LED emits Low Red light");
+        }
+        
+      else if((phase > '0') && (phase == '5'))
+        {
+          setColor(0, 0);
+          Serial.println("You chose low dim & plant phase 2. LED emits Low Purple light");
+        }
+        
+      else if((phase > '0') && (phase == '6'))
+        {
+          setColor(255, 0);
+          Serial.println("You chose low dim & plant phase 3. LED emits Low Blue light");
+        } 
+      else if((phase > '0') && (phase == '7'))
+        {
+          digitalWrite(Relay, LOW);
+          Serial.println("Light has been turned OFF");
+        }   
+  
+  int temp_adc_val;
+  float temp_val;
+  temp_adc_val = analogRead(lm35_pin);  /* Read Temperature */
+  temp_val = (temp_adc_val * 4.88); /* Convert adc value to equivalent voltage */
+  temp_val = (temp_val/10); /* LM35 gives output of 10mv/°C */
+  temp_val = temp_val - 180;
+  
+  Serial.print("Temp. = ");
+  Serial.print(temp_val);
+  Serial.print(" 'C\n");
+  lcd.backlight();
+  lcd.setCursor(3,0);
+  lcd.print("Temperature = ");
+  lcd.setCursor(6,1);
+  lcd.print(temp_val);
+   lcd.setCursor(11,1);
+  lcd.print("*C");
+  if (temp_val >= hot)   //hot
+  { 
+    Serial.println(" It's Hot.");
+    lcd.setCursor(4,2);
+    lcd.print(" It's Hot.");
+    digitalWrite( Relay, LOW);
+  }
+  else                  //normal
+  { 
+    Serial.println(" It's Fine.");
+    lcd.setCursor(4,2);
+    lcd.print(" It's Fine.");
+  }
+  delay(1000);
+  
+   lcd.setCursor(2,3);
+  lcd.print("   CHAIYOK!!");
+  
+  DateTime now = rtc.now();
+
+  
+    Serial.print(now.hour(), DEC);
+    Serial.print(':');
+    Serial.print(now.minute(), DEC);
+
+    if(now.hour() >= 8 && now.minute() >= 00){
+    lightsOn = true;
+    sendSMS();
+    digitalWrite(Relay, HIGH);
+    //Serial.println("LIGHT ON");
+    }
+    if(now.hour() >= 23 && now.minute() >=58 )
+    {
+    digitalWrite(Relay,LOW);  
+    lightsOn = false;
+    Serial.println("LIGHT OFF");
+    }
+  
+
+
+ 
+ }//void loop
+}
+
+void setColor(int red, int blue){
+  
+  digitalWrite(redPin, red);
+  digitalWrite(bluePin, blue);
+}
+  
+// Function that sends SMS
+void sendSMS(){
+  
+  mySerial.print("AT+CMGF=1\r"); // AT command to set SIM900 to SMS mode
+  delay(1000);
+  mySerial.println("AT + CMGS = \"+60179135147\""); // REPLACE THE X's WITH THE RECIPIENT'S MOBILE NUMBER, USE INTERNATIONAL FORMAT CODE FOR MOBILE NUMBERS
+  delay(1000);
+  
+  //mySerial.println("This is in sendSMS().");
+  mySerial.println("Press 1/4 for germination phase");
+  mySerial.println("Press 2/5 for plant growth phase");
+  mySerial.println("Press 3/6 for vegetative phase");
+  mySerial.println("Press 7 to turn off light");
+  //mySerial.println(phase); // Send the SMS
+  delay(1000);
+
+  mySerial.println((char)26); // End AT command with a ^Z, ASCII code 26
+  delay(1000);
+  mySerial.println();
+  delay(5000); // Give module time to send SMS
+}
